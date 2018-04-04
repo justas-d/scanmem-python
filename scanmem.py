@@ -28,9 +28,15 @@ if libfile is None:
 # backend initialization
 backend = CDLL(libfile)
 
-backend.sm_init.restype = c_bool
 backend.sm_execcommand.argtypes = [c_void_p, c_char_p]
+backend.sm_set_stop_flag.argtypes = [c_bool]
+
+backend.sm_init.restype = c_bool
 backend.sm_execcommand.restype = c_bool
+backend.sm_get_num_matches.restype = c_ulong
+backend.sm_get_version.restype = c_char_p
+backend.sm_get_scan_progress = c_double
+
 
 if not backend.sm_init():
     raise OSError("scanmem sm_init() failed.")
@@ -63,22 +69,39 @@ class Globals(Structure):
             ("options", GlobalOptions)
     ]
 
-def get_global_vars(self):
+def get_global_vars():
         return Globals.in_dll(backend, "sm_globals")
 
-def exec_command(cmd):
+def exec_command(strCmd):
     '''
         python strings are wchars, sm expects byte wide ascii.
         therefore, we've got to recreate the string
     '''
-    strbuf = create_string_buffer(cmd.encode('ascii'))
+    strbuf = create_string_buffer(strCmd.encode('ascii'))
     return backend.sm_backend_exec_cmd(strbuf.raw)
 
-def set_backend(status):
-    if status: backend.sm_
+def get_num_matches():
+    return backend.sm_get_num_matches()
+
+def get_version():
+    return c_char_p(backend.sm_get_version()).value
+
+def get_scan_progress():
+    return backend.sm_get_scan_progress().value
+
+def set_stop_flag(boolState):
+    backend.sm_set_stop_flag(boolState)
 
 @atexit.register
 def unload():
     backend.sm_cleanup()
 
 exec_command("version")
+
+assert(get_num_matches() == 0)
+assert(get_version() == b"0.17")
+assert(get_scan_progress() == 0.0)
+
+assert(get_global_vars().stop_flag == False)
+set_stop_flag(True)
+assert(get_global_vars().stop_flag == True)
