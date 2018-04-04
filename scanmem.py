@@ -21,7 +21,6 @@ import ctypes.util
 import atexit
 
 libfile = ctypes.util.find_library("scanmem")
-print(libfile)
 
 if libfile is None:
     raise OSError("Failed to find scanmem shared object.")
@@ -33,16 +32,18 @@ c_pid_t = c_int
 c_match_flags = c_uint16
 c_wildcard_t = c_uint16
 c_scan_match_type = c_uint32
+c_list_t_ptr = c_void_p
+c_region_scan_level_t = c_uint32
+c_scan_data_type_t = c_uint32
 
-backend.sm_init.restype = c_bool
-if not backend.sm_init():
-    raise OSError("scanmem sm_init() failed.")
-
-@atexit.register
-def unload():
-    backend.sm_cleanup()
-
-backend.sm_set_backend()
+''' 
+    maps.h: region_scan_level_t
+        determine which regions we need
+'''
+class RegionScanLevel():
+    REGION_ALL = 0 # each of them 
+    REGION_HEAP_STACK_EXECUTABLE = 1 # heap, stack, executable 
+    REGION_HEAP_STACK_EXECUTABLE_BSS = 2 # heap, stack, executable, bss
 
 '''
     value.h: match_flags
@@ -143,25 +144,6 @@ class UserValue(Structure):
         ("match_flags",     c_match_flags)
     ]
 
-''' scanroutines.h: scan_match_type_t '''
-class ScanMatchType():
-    MATCH_ANY = 0                # for snapshot
-    # following: compare with a given value
-    MATCH_EQUAL_TO = 1
-    MATCH_NOTEQUAL_TO = 2
-    MATCH_GREATER_THAN = 3
-    MATCH_LESS_THAN = 4
-    MATCH_RANGE = 5
-    # following: compare with the old value
-    MATCH_UPDATE = 6
-    MATCH_NOT_CHANGED = 7
-    MATCH_CHANGED = 8
-    MATCH_INCREASED = 9
-    MATCH_DECREASED = 10
-    # following: compare with both given value and old value
-    MATCH_INCREASED_BY = 11
-    MATCH_DECREASED_BY = 12
-
 ''' 
     value.h: value_t 
         this struct describes matched values
@@ -189,14 +171,49 @@ class SetValue(Structure):
         ("flags", c_match_flags)
     ]
 
+
+''' scanroutines.h: scan_data_type_t '''
+class ScanDataType():
+    ANYNUMBER = 0 # ANYINTEGER or ANYFLOAT
+    ANYINTEGER = 1 # INTEGER of whatever width
+    ANYFLOAT = 2 # FLOAT of whatever width
+    INTEGER8 = 3
+    INTEGER16 = 4
+    INTEGER32 = 5
+    INTEGER64 = 6
+    FLOAT32 = 7
+    FLOAT64 = 8
+    BYTEARRAY = 9
+    STRING = 10
+
+
+''' scanroutines.h: scan_match_type_t '''
+class ScanMatchType():
+    MATCH_ANY = 0                # for snapshot
+    # following: compare with a given value
+    MATCH_EQUAL_TO = 1
+    MATCH_NOTEQUAL_TO = 2
+    MATCH_GREATER_THAN = 3
+    MATCH_LESS_THAN = 4
+    MATCH_RANGE = 5
+    # following: compare with the old value
+    MATCH_UPDATE = 6
+    MATCH_NOT_CHANGED = 7
+    MATCH_CHANGED = 8
+    MATCH_INCREASED = 9
+    MATCH_DECREASED = 10
+    # following: compare with both given value and old value
+    MATCH_INCREASED_BY = 11
+    MATCH_DECREASED_BY = 12
+
 ''' scanmem.h: globals_t::options '''
 class GlobalOptions(Structure):
     _fields_ = [
             ("alignment",           c_uint16),
             ("debug",               c_uint16),
             ("backend",             c_uint16),
-            ("scan_data_type",      c_uint32), # scan_data_type_t
-            ("region_scan_level",   c_uint32), #region_scan_level_t
+            ("scan_data_type",      c_scan_data_type_t), 
+            ("region_scan_level",   c_region_scan_level_t),
             ("dump_with_ascii",     c_uint16),
             ("reverse_endianness",  c_uint16)
     ]
@@ -210,25 +227,33 @@ class Globals(Structure):
             ("num_matches",     c_uint64),
             ("scan_progress",   c_double),
             ("stop_flag",       c_bool),
-            ("regions",         c_void_p), # list_t*
-            ("commands",        c_void_p), #  list_t*
+            ("regions",         c_list_t_ptr),
+            ("commands",        c_list_t_ptr), 
             ("current_cmdline", c_char_p),
             ("printversion",    c_void_p), # void (*printversion)(FILE *outfd);
             ("options",         GlobalOptions)
     ]
 
-backend.sm_execcommand.argtypes     = [c_void_p, c_char_p]
-backend.sm_set_stop_flag.argtypes   = [c_bool]
-backend.sm_detach.argtypes          = [c_pid_t]
-backend.sm_setaddr.argtypes         = [c_pid_t, c_void_p, POINTER(SetValue)]
-backend.sm_checkmatches.argtypes    = [POINTER(Globals), c_scan_match_type, POINTER(UserValue)]
-backend.sm_searchregions.argtypes   = [POINTER(Globals), c_scan_match_type, POINTER(UserValue)]
-backend.sm_peekdata.argtypes        = [c_void_p, c_uint16, POINTER(POINTER(Mem64)), c_size_t]
-backend.sm_attach.argtypes          = [c_pid_t]
-backend.sm_read_array.argtypes      = [c_pid_t, c_void_p, c_void_p, c_size_t]
-backend.sm_write_array.argtypes     = [c_pid_t, c_void_p, c_void_p, c_size_t]
+backend.sm_init_ctx.argtypes            = [POINTER(Globals)]
+backend.sm_cleanup_ctx.argtypes         = [POINTER(Globals)]
+backend.sm_set_backend_ctx.argtypes     = [POINTER(Globals)]
+backend.sm_get_num_matches.argtypes     = [POINTER(Globals)]
+backend.sm_get_scan_progress.argtypes      = [POINTER(Globals)]
+backend.sm_backend_exec_cmd_ctx.argtypes= [POINTER(Globals), c_char_p]
+backend.sm_set_stop_flag.argtypes       = [POINTER(Globals), c_bool]
+backend.sm_detach.argtypes              = [c_pid_t]
+backend.sm_setaddr.argtypes             = [c_pid_t, c_void_p, POINTER(SetValue)]
+backend.sm_checkmatches.argtypes        = [POINTER(Globals), c_scan_match_type, POINTER(UserValue)]
+backend.sm_searchregions.argtypes       = [POINTER(Globals), c_scan_match_type, POINTER(UserValue)]
+backend.sm_peekdata.argtypes            = [c_void_p, c_uint16, POINTER(POINTER(Mem64)), c_size_t]
+backend.sm_attach.argtypes              = [c_pid_t]
+backend.sm_read_array.argtypes          = [c_pid_t, c_void_p, c_void_p, c_size_t]
+backend.sm_write_array.argtypes         = [c_pid_t, c_void_p, c_void_p, c_size_t]
+backend.sm_readmaps.argtypes            = [c_pid_t, c_list_t_ptr, c_region_scan_level_t]
+backend.sm_reset.argtypes               = [POINTER(Globals)]
 
-backend.sm_execcommand.restype          = c_bool
+backend.sm_init_ctx.restype             = c_bool
+backend.sm_backend_exec_cmd_ctx.restype = c_bool
 backend.sm_get_num_matches.restype      = c_ulong
 backend.sm_get_version.restype          = c_char_p
 backend.sm_get_scan_progress.restype    = c_double
@@ -240,92 +265,122 @@ backend.sm_peekdata.restype             = c_bool
 backend.sm_attach.restype               = c_bool 
 backend.sm_read_array.restype           = c_bool 
 backend.sm_write_array.restype          = c_bool 
+backend.sm_readmaps.restype             = c_bool
+backend.sm_reset.restype                = c_bool
 
-def get_global_vars():
-        return Globals.in_dll(backend, "sm_globals")
 
-''' scanmem.h '''
-# void sm_backend_exec_cmd(const char *commandline);
-def exec_command(strCmd):
-    '''
-        python strings are wchars, sm expects byte wide ascii.
-        therefore, we've got to recreate the string
-    '''
-    backend.sm_backend_exec_cmd(strCmd.encode('ascii'))
+class Scanmem():
+    def __init__(self):
+        self.globals = Globals()
+        self.globals_ptr = pointer(self.globals)
+        self.are_commands_initialized = False
 
-# unsigned long sm_get_num_matches(void);
-def get_num_matches():
-    return backend.sm_get_num_matches()
+    def __del__(self):
+        if self.are_commands_initialized:
+            self.cleanup()
 
-# const char *sm_get_version(void);
-def get_version():
-    return c_char_p(backend.sm_get_version()).value
+    def get_global_vars(self):
+            return Globals.in_dll(backend, "sm_globals")
 
-# double sm_get_scan_progress(void);
-def get_scan_progress():
-    return backend.sm_get_scan_progress()
+    ''' commands.h '''
+    ''' bool sm_backend_exec_cmd_ctx(globals_t *vars, const char *commandline); '''
+    def exec_command(self, strCmd):
+        '''
+            python strings are wchars, sm expects byte wide ascii.
+            therefore, we've got to recreate the string
+        '''
+        backend.sm_execcommand(self.globals_ptr, strCmd.encode('ascii'))
 
-# void sm_set_stop_flag(bool stop_flag);
-def set_stop_flag(boolState):
-    backend.sm_set_stop_flag(boolState)
+    ''' scanmem.h '''
+    ''' bool sm_init_ctx(globals_t *vars); '''
+    def init(self):
+        if self.are_commands_initialized: return false
+        return backend.sm_init_ctx(self.globals_ptr)
 
+    ''' void sm_cleanup_ctx(globals_t *vars); '''
+    def cleanup(self):
+        if not self.are_commands_initialized: return false
+        return backend.sm_cleanup_ctx(self.globals_ptr)
+
+    ''' unsigned long sm_get_num_matches_ctx(globals_t *vars); '''
+    def get_num_matches(self):
+        return backend.sm_get_num_matches_ctx(self.globals_ptr)
+
+    ''' const char *sm_get_version(void); '''
+    def get_version(self):
+        return c_char_p(backend.sm_get_version()).value
+
+    ''' double sm_get_scan_progress_ctx(globals_t *vars); '''
+    def get_scan_progress(self):
+        return backend.sm_get_scan_progress_ctx(self.globals_ptr)
+
+    ''' void sm_set_stop_flag_ctx(globals_t *vars, bool stop_flag); '''
+    def set_stop_flag(self, boolState):
+        backend.sm_set_stop_flag_ctx(self.globals_ptr, boolState)
+
+    ''' void sm_set_backend_ctx(globals_t *vars); '''
+    def set_backend(self):
+        backend.sm_set_backend_ctx(self.globals_ptr)
+
+# TODO ptrace.c
 # bool sm_detach(pid_t target);
-def detach(pidTarget):
-    return backend.sm_detach(pidTarget)
+    def detach(self, pidTarget):
+        return backend.sm_detach(pidTarget)
 
-''' UNTESTED '''
 # bool sm_setaddr(pid_t target, void *addr, const value_t *to);
-def set_address(pidTarget, address, userValue):
-    return backend.sm_setaddr(pidTarget, address, userValue)
+    def set_address(self, pidTarget, ptrAddress, userValue):
+        return backend.sm_setaddr(pidTarget, ptrAddress, pointer(userValue))
+
+    def set_address_ptr(self, pidTarget, ptrAddress, ptrUserValue):
+        return backend.sm_setaddr(pidTarget, ptrAddress, ptrUserValue)
 
 # bool sm_checkmatches(globals_t *vars, scan_match_type_t match_type, const uservalue_t *uservalue);
-def check_matches(matchType, userValue):
-    return backend.sm_checkmatches(pointer(get_global_vars()), matchType, userValue)
+    def check_matches(self, matchType, userValue):
+        return backend.sm_checkmatches(self.globals_ptr, matchType, pointer(userValue))
+
+    def check_matches_ptr(self, matchType, ptrUserValue):
+        return backend.sm_checkmatches(self.globals_ptr, matchType, ptrUserValue)
 
 # bool sm_searchregions(globals_t *vars, scan_match_type_t match_type, const uservalue_t *uservalue);
-def search_regions(matchType, userValue):
-    return backend.sm_searchregions(pointer(get_global_vars()), matchType, userValue)
+    def search_regions(self, matchType, userValue):
+        return backend.sm_searchregions(self.globals_ptr, matchType, pointer(userValue))
+
+    def search_regions_ptr(self, matchType, ptrUserValue):
+        return backend.sm_searchregions(self.globals_ptr, matchType, ptrUserValue)
 
 # bool sm_peekdata(const void *addr, uint16_t length, const mem64_t **result_ptr, size_t *memlength);
-def peek_data(address, length, resultPtr, memLength):
-    return backend.sm_peekdata(address, length, resultPtr, memLength)
+    def peek_data(self, ptrAddress, length, ptrResultArray, ptrMemLength):
+        return backend.sm_peekdata(ptrAddress, length, ptrResultArray, ptrMemLength)
 
 # bool sm_attach(pid_t target);
-def attach(pidTarget):
-    return backend.sm_attach(pidTarget)
+    def attach(self, pidTarget):
+        return backend.sm_attach(pidTarget)
 
 # bool sm_read_array(pid_t target, const void *addr, void *buf, size_t len);
-def read_array(pidTarget, address, voidBuffer, length):
-    return backend.sm_read_array(pidTarget, address, voidBuffer, length)
+    def read_array(self, pidTarget, ptrAddress, ptrBuffer, length):
+        return backend.sm_read_array(pidTarget, ptrAddress, ptrBuffer, length)
 
 # bool sm_write_array(pid_t target, void *addr, const void *data, size_t len);
-def write_array(pidTarget, address, data, length):
-    return backend.sm_read_array(pidTarget, address, data, length)
+    def write_array(self, pidTarget, ptrAddress, ptrData, length):
+        return backend.sm_read_array(pidTarget, ptrAddress, ptrData, length)
 
-def reset():
-    exec_command("reset")
+# bool sm_readmaps(pid_t target, list_t *regions, region_scan_level_t region_scan_level);
+    def read_maps(self):
+        return backend.sm_readmaps(self.globals.target, self.globals.regions, self.globals.options.region_scan_level)
 
-def set_target(pidTarget):
-    get_global_vars().target = pidTarget
+# bool sm_reset(globals_t* vars);
+    def reset(self):
+        return backend.sm_reset(self.globals_ptr)
 
-exec_command("version")
+pid = 5526
 
-assert(get_num_matches() == 0)
-#assert(get_version() == b"0.17")
-assert(get_scan_progress() == 0.0)
-
-assert(get_global_vars().stop_flag == False)
-set_stop_flag(True)
-assert(get_global_vars().stop_flag == True)
-
-pid = 13916
-
-set_target(pid)
-reset()
+scanmem = Scanmem()
+scanmem.globals.target = pid
 
 val = UserValue()
-val.uint16_value = int(input())
-print(val.uint16_value)
 val.match_flags = MatchFlag.FLAGS_INTEGER
+val.uint16_value = int(input())
 
-search_regions(ScanMatchType.MATCH_EQUAL_TO, pointer(val))
+scanmem.reset()
+scanmem.read_maps()
+scanmem.search_regions(ScanMatchType.MATCH_EQUAL_TO, val)
