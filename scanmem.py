@@ -25,12 +25,17 @@ libfile = ctypes.util.find_library("scanmem")
 if libfile is None:
     raise OSError("Failed to find scanmem shared object.")
 
+# backend initialization
 backend = CDLL(libfile)
 
-backend.sm_init()
+backend.sm_init.restype = c_bool
 backend.sm_execcommand.argtypes = [c_void_p, c_char_p]
 backend.sm_execcommand.restype = c_bool
-backend.sm_init.restype = c_bool
+
+if not backend.sm_init():
+    raise OSError("scanmem sm_init() failed.")
+
+backend.sm_set_backend()
 
 class GlobalOptions(Structure):
     _fields_ = [
@@ -58,22 +63,22 @@ class Globals(Structure):
             ("options", GlobalOptions)
     ]
 
-class Scanmem():
-
-    def get_global_t(self):
+def get_global_vars(self):
         return Globals.in_dll(backend, "sm_globals")
 
-    def exec_command(self, what):
-        '''
-            python strings are wchars, sm expects byte wide ascii.
-            therefore, we've got to recreate the string
-        '''
-        strbuf = create_string_buffer(what.encode('ascii'))
-        return backend.sm_execcommand(pointer(self.get_global_t()), strbuf.raw)
+def exec_command(cmd):
+    '''
+        python strings are wchars, sm expects byte wide ascii.
+        therefore, we've got to recreate the string
+    '''
+    strbuf = create_string_buffer(cmd.encode('ascii'))
+    return backend.sm_backend_exec_cmd(strbuf.raw)
 
-mem = Scanmem()
-mem.exec_command("version")
+def set_backend(status):
+    if status: backend.sm_
 
 @atexit.register
 def unload():
     backend.sm_cleanup()
+
+exec_command("version")
