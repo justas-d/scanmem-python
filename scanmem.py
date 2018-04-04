@@ -372,15 +372,18 @@ class Scanmem():
     def reset(self):
         return backend.sm_reset(self.globals_ptr)
 
-pid = 5526
+if __name__ == "__main__":
+    pid = 5526
 
-scanmem = Scanmem()
-scanmem.globals.target = pid
+    scanmem = Scanmem()
+    scanmem.globals.target = pid
 
-val = UserValue()
-val.match_flags = MatchFlag.FLAGS_INTEGER
-val.uint16_value = int(input())
+    val = UserValue()
+    val.match_flags = MatchFlag.FLAGS_INTEGER
+    val.uint16_value = int(input())
 
-scanmem.reset()
-scanmem.read_maps()
-scanmem.search_regions(ScanMatchType.MATCH_EQUAL_TO, val)
+    scanmem.reset()
+    scanmem.read_maps()
+    scanmem.search_regions(ScanMatchType.MATCH_EQUAL_TO, val)
+
+
