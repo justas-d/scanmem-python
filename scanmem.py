@@ -21,6 +21,7 @@ import ctypes.util
 import atexit
 
 libfile = ctypes.util.find_library("scanmem")
+print(libfile)
 
 if libfile is None:
     raise OSError("Failed to find scanmem shared object.")
@@ -144,22 +145,22 @@ class UserValue(Structure):
 
 ''' scanroutines.h: scan_match_type_t '''
 class ScanMatchType():
-    MATCHANY = 0                # for snapshot
+    MATCH_ANY = 0                # for snapshot
     # following: compare with a given value
-    MATCHEQUALTO = 1
-    MATCHNOTEQUALTO = 2
-    MATCHGREATERTHAN = 3
-    MATCHLESSTHAN = 4
-    MATCHRANGE = 5
+    MATCH_EQUAL_TO = 1
+    MATCH_NOTEQUAL_TO = 2
+    MATCH_GREATER_THAN = 3
+    MATCH_LESS_THAN = 4
+    MATCH_RANGE = 5
     # following: compare with the old value
-    MATCHUPDATE = 6
-    MATCHNOTCHANGED = 7
-    MATCHCHANGED = 8
-    MATCHINCREASED = 9
-    MATCHDECREASED = 10
+    MATCH_UPDATE = 6
+    MATCH_NOT_CHANGED = 7
+    MATCH_CHANGED = 8
+    MATCH_INCREASED = 9
+    MATCH_DECREASED = 10
     # following: compare with both given value and old value
-    MATCHINCREASEDBY = 11
-    MATCHDECREASEDBY = 12
+    MATCH_INCREASED_BY = 11
+    MATCH_DECREASED_BY = 12
 
 ''' 
     value.h: value_t 
@@ -250,7 +251,7 @@ def exec_command(strCmd):
         python strings are wchars, sm expects byte wide ascii.
         therefore, we've got to recreate the string
     '''
-    return backend.sm_backend_exec_cmd(strCmd.encode('ascii'))
+    backend.sm_backend_exec_cmd(strCmd.encode('ascii'))
 
 # unsigned long sm_get_num_matches(void);
 def get_num_matches():
@@ -267,13 +268,12 @@ def get_scan_progress():
 # void sm_set_stop_flag(bool stop_flag);
 def set_stop_flag(boolState):
     backend.sm_set_stop_flag(boolState)
-    
-''' UNTESTED '''
 
 # bool sm_detach(pid_t target);
 def detach(pidTarget):
     return backend.sm_detach(pidTarget)
 
+''' UNTESTED '''
 # bool sm_setaddr(pid_t target, void *addr, const value_t *to);
 def set_address(pidTarget, address, userValue):
     return backend.sm_setaddr(pidTarget, address, userValue)
@@ -282,7 +282,7 @@ def set_address(pidTarget, address, userValue):
 def check_matches(matchType, userValue):
     return backend.sm_checkmatches(pointer(get_global_vars()), matchType, userValue)
 
-# bool sm_searchregions(globals_t *vars, scan_match_type_t match_type, const use2rvalue_t *uservalue);
+# bool sm_searchregions(globals_t *vars, scan_match_type_t match_type, const uservalue_t *uservalue);
 def search_regions(matchType, userValue):
     return backend.sm_searchregions(pointer(get_global_vars()), matchType, userValue)
 
@@ -302,12 +302,30 @@ def read_array(pidTarget, address, voidBuffer, length):
 def write_array(pidTarget, address, data, length):
     return backend.sm_read_array(pidTarget, address, data, length)
 
+def reset():
+    exec_command("reset")
+
+def set_target(pidTarget):
+    get_global_vars().target = pidTarget
+
 exec_command("version")
 
 assert(get_num_matches() == 0)
-assert(get_version() == b"0.17")
+#assert(get_version() == b"0.17")
 assert(get_scan_progress() == 0.0)
 
 assert(get_global_vars().stop_flag == False)
 set_stop_flag(True)
 assert(get_global_vars().stop_flag == True)
+
+pid = 13916
+
+set_target(pid)
+reset()
+
+val = UserValue()
+val.uint16_value = int(input())
+print(val.uint16_value)
+val.match_flags = MatchFlag.FLAGS_INTEGER
+
+search_regions(ScanMatchType.MATCH_EQUAL_TO, pointer(val))
